@@ -14,7 +14,6 @@ uint64_t ChessBoard::zobristCastling[4];
 uint64_t ChessBoard::zobristEnPassant[8];
 
 ChessBoard::ChessBoard() {
-    // --- Twój oryginalny sposób: parsowanie pozycji startowej z FEN ---
     std::string startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
     int row = 0, col = 0;
 
@@ -510,20 +509,38 @@ static std::string coordToNotation(int row, int col) {
 
 std::vector<std::string> ChessBoard::generateLegalMoves(bool forWhite) {
     std::vector<std::string> legalMoves;
-
-    // --- 1️⃣ Wygeneruj wszystkie pseudolegalne ruchy ---
     auto pseudoMoves = generatePseudoLegalMoves(forWhite);
 
-    // --- 2️⃣ Filtruj ruchy, które zostawiają króla w szachu ---
     for (const auto& move : pseudoMoves) {
         ChessBoard copy = *this;
-        if (copy.makeMove(move)) { // makeMove już sprawdza, czy król nie w szachu
+        copy.simulationMode = true; // nie chcemy exit(0) w postMoveUpdates
+
+        int fr, fc, tr, tc;
+        char promo;
+        if (!copy.parseMove(move, fr, fc, tr, tc, promo)) continue;
+
+        char piece = copy.board[fr][fc];
+        if (!copy.isMoveValid(fr, fc, tr, tc)) continue;
+
+        // wykonaj tymczasowy ruch
+        char backupFrom = copy.board[fr][fc];
+        char backupTo   = copy.board[tr][tc];
+        copy.board[tr][tc] = backupFrom;
+        copy.board[fr][fc] = '.';
+
+        bool kingInCheck = copy.isInCheck(forWhite);
+
+        // cofamy
+        copy.board[fr][fc] = backupFrom;
+        copy.board[tr][tc] = backupTo;
+
+        if (!kingInCheck)
             legalMoves.push_back(move);
-        }
     }
 
     return legalMoves;
 }
+
 std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) const {
     std::vector<std::string> moves;
     const int dir = forWhite ? -1 : 1;
