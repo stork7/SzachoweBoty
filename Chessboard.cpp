@@ -32,7 +32,7 @@ ChessBoard::ChessBoard() {
         zobristWhiteToMove = dist(rng);
         zobristInitialized = true;
     }
-    loadFEN("r5rk/5p1p/5R2/4B3/8/8/7P/7K_w_-_-_0_1");
+    loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR_w_KQkq_-_0_1");
 }
 
 bool ChessBoard::loadFEN(const std::string& fen) {
@@ -565,29 +565,15 @@ std::vector<std::string> ChessBoard::generateLegalMoves(bool forWhite) {
     auto pseudoMoves = generatePseudoLegalMoves(forWhite);
 
     for (const auto& move : pseudoMoves) {
-        ChessBoard copy = *this;
-        copy.simulationMode = true; // nie chcemy exit(0) w postMoveUpdates
-
         int fr, fc, tr, tc;
         char promo;
-        if (!copy.parseMove(move, fr, fc, tr, tc, promo)) continue;
+        if (!parseMove(move, fr, fc, tr, tc, promo)) continue;
 
-        char piece = copy.board[fr][fc];
-        if (!copy.isMoveValid(fr, fc, tr, tc)) continue;
+        char piece = board[fr][fc];
+        if (piece == '.' || (std::isupper(piece) != forWhite)) continue;
+        if (!isMoveValid(fr, fc, tr, tc)) continue;
 
-        // wykonaj tymczasowy ruch
-        char backupFrom = copy.board[fr][fc];
-        char backupTo   = copy.board[tr][tc];
-        copy.board[tr][tc] = backupFrom;
-        copy.board[fr][fc] = '.';
-
-        bool kingInCheck = copy.isInCheck(forWhite);
-
-        // cofamy
-        copy.board[fr][fc] = backupFrom;
-        copy.board[tr][tc] = backupTo;
-
-        if (!kingInCheck)
+        if (!wouldLeaveKingInCheck(fr, fc, tr, tc, promo))
             legalMoves.push_back(move);
     }
 
@@ -707,35 +693,100 @@ std::vector<std::string> ChessBoard::generateMovesForPiece(int row, int col) con
     char piece = board[row][col];
     if (piece == '.') return moves;
 
-    bool isWhite = std::isupper(piece);
+    auto posToStr = [](int r1, int c1, int r2, int c2) {
+        std::string s;
+        s += static_cast<char>('a' + c1);
+        s += static_cast<char>('8' - r1);
+        s += static_cast<char>('a' + c2);
+        s += static_cast<char>('8' - r2);
+        return s;
+    };
 
-    // lokalna kopia planszy do symulacji
-    ChessBoard temp = *this;
+    auto addIfLegal = [&](int targetRow, int targetCol) -> bool {
+        if (targetRow < 0 || targetRow >= 8 || targetCol < 0 || targetCol >= 8)
+            return false;
+        if (!isMoveValid(row, col, targetRow, targetCol))
+            return false;
 
-    for (int r2 = 0; r2 < 8; ++r2) {
-        for (int c2 = 0; c2 < 8; ++c2) {
-            if (temp.isMoveValid(row, col, r2, c2)) {
-                // symulacja ruchu na kopii
-                char tmpFrom = temp.board[row][col];
-                char tmpTo = temp.board[r2][c2];
-                temp.board[r2][c2] = tmpFrom;
-                temp.board[row][col] = '.';
+        auto* mutableThis = const_cast<ChessBoard*>(this);
+        if (!mutableThis->wouldLeaveKingInCheck(row, col, targetRow, targetCol, 0))
+            moves.push_back(posToStr(row, col, targetRow, targetCol));
 
-                bool stillSafe = !temp.isInCheck(isWhite);
+        return board[targetRow][targetCol] == '.';
+    };
 
-                // cofnięcie na kopii
-                temp.board[row][col] = tmpFrom;
-                temp.board[r2][c2] = tmpTo;
+    switch (std::tolower(piece)) {
+        case 'p': {
+            int dir = std::isupper(piece) ? -1 : 1;
+            int forward = row + dir;
+            addIfLegal(forward, col);
 
-                if (stillSafe) {
-                    std::string move;
-                    move += static_cast<char>('a' + col);
-                    move += static_cast<char>('8' - row);
-                    move += static_cast<char>('a' + c2);
-                    move += static_cast<char>('8' - r2);
-                    moves.push_back(move);
+            if ((std::isupper(piece) && row == 6) || (!std::isupper(piece) && row == 1)) {
+                int doubleForward = row + 2 * dir;
+                addIfLegal(doubleForward, col);
+            }
+
+            for (int dc : {-1, 1}) {
+                int nr = row + dir;
+                int nc = col + dc;
+                addIfLegal(nr, nc);
+            }
+            break;
+        }
+        case 'n': {
+            static const int dr[8] = {-2,-1,1,2, 2,1,-1,-2};
+            static const int dc[8] = {1,2,2,1,-1,-2,-2,-1};
+            for (int i = 0; i < 8; ++i)
+                addIfLegal(row + dr[i], col + dc[i]);
+            break;
+        }
+        case 'b': {
+            const int dirs[4][2] = {{1,1},{1,-1},{-1,1},{-1,-1}};
+            for (auto& d : dirs) {
+                int nr = row + d[0], nc = col + d[1];
+                while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                    if (!addIfLegal(nr, nc))
+                        break;
+                    nr += d[0];
+                    nc += d[1];
                 }
             }
+            break;
+        }
+        case 'r': {
+            const int dirs[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
+            for (auto& d : dirs) {
+                int nr = row + d[0], nc = col + d[1];
+                while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                    if (!addIfLegal(nr, nc))
+                        break;
+                    nr += d[0];
+                    nc += d[1];
+                }
+            }
+            break;
+        }
+        case 'q': {
+            const int dirs[8][2] = {{1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}};
+            for (auto& d : dirs) {
+                int nr = row + d[0], nc = col + d[1];
+                while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                    if (!addIfLegal(nr, nc))
+                        break;
+                    nr += d[0];
+                    nc += d[1];
+                }
+            }
+            break;
+        }
+        case 'k': {
+            for (int dr = -1; dr <= 1; ++dr) {
+                for (int dc = -1; dc <= 1; ++dc) {
+                    if (dr == 0 && dc == 0) continue;
+                    addIfLegal(row + dr, col + dc);
+                }
+            }
+            break;
         }
     }
     return moves;
