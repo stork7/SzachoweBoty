@@ -12,7 +12,6 @@ class ChessBoard {
     char board[8][8];
     bool whiteToMove;
     std::pair<int,int> enPassantTarget = {-1, -1};
-    // Roszada – czy król / wieże ruszały się
     bool whiteKingMoved, blackKingMoved;
     bool whiteKingsideRookMoved, whiteQueensideRookMoved;
     bool blackKingsideRookMoved, blackQueensideRookMoved;

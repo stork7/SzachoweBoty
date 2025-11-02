@@ -76,7 +76,6 @@ int main() {
     int modeIn = 0;
     std::cin >> modeIn;
 
-    // Wyczyść ewentualne resztki z bufora
     std::cin.clear();
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
@@ -84,7 +83,6 @@ int main() {
         ? static_cast<Mode>(modeIn)
         : DEFAULT_MODE;
 
-    // 🔹 Tutaj zwykłe >> zamiast getline — działa w CLion
     int depth;
     std::cout << "Glebokosc przeszukiwania: ";
     if (!(std::cin >> depth)) depth = 5;
