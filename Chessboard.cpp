@@ -14,35 +14,6 @@ uint64_t ChessBoard::zobristCastling[4];
 uint64_t ChessBoard::zobristEnPassant[8];
 
 ChessBoard::ChessBoard() {
-    std::string startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-    int row = 0, col = 0;
-
-    for (char c : startFEN) {
-        if (c == '/') {
-            row++;
-            col = 0;
-        } else if (isdigit(c)) {
-            int empty = c - '0';
-            for (int i = 0; i < empty; i++) {
-                board[row][col++] = '.';
-            }
-        } else {
-            board[row][col++] = c;
-        }
-    }
-
-    whiteToMove = true;
-
-    // --- Reset flag roszady, en passant itd. ---
-    enPassantTarget = {-1, -1};
-    whiteKingMoved = blackKingMoved = false;
-    whiteKingsideRookMoved = whiteQueensideRookMoved = false;
-    blackKingsideRookMoved = blackQueensideRookMoved = false;
-
-    // --- Wyczyść historię i TT ---
-    positionHistory.clear();
-    transpositionTable.clear();
-
     // --- Inicjalizacja tablic Zobrista (tylko raz) ---
     static bool zobristInitialized = false;
     if (!zobristInitialized) {
@@ -62,12 +33,91 @@ ChessBoard::ChessBoard() {
         zobristWhiteToMove = dist(rng);
         zobristInitialized = true;
     }
+    loadFEN("r5rk/5p1p/5R2/4B3/8/8/7P/7K_w_-_-_0_1");
+}
 
-    // --- Oblicz początkowy hash pozycji ---
+bool ChessBoard::loadFEN(const std::string& fen) {
+    std::string cleaned = fen;
+    std::replace(cleaned.begin(), cleaned.end(), '_', ' ');
+
+    std::istringstream ss(cleaned);
+    std::string placement, active, castling, enPassant;
+    int halfmoveClock = 0;
+    int fullmoveNumber = 1;
+
+    if (!(ss >> placement)) return false;
+    if (!(ss >> active)) active = "w";
+    if (!(ss >> castling)) castling = "-";
+    if (!(ss >> enPassant)) enPassant = "-";
+    if (!(ss >> halfmoveClock)) halfmoveClock = 0;
+    if (!(ss >> fullmoveNumber)) fullmoveNumber = 1;
+    (void)halfmoveClock;
+    (void)fullmoveNumber;
+
+    for (int r = 0; r < 8; ++r)
+        for (int c = 0; c < 8; ++c)
+            board[r][c] = '.';
+
+    int row = 0, col = 0;
+    for (char c : placement) {
+        if (c == '/') {
+            if (++row >= 8) return false;
+            col = 0;
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(c))) {
+            int empty = c - '0';
+            if (empty <= 0 || col + empty > 8) return false;
+            col += empty;
+            continue;
+        }
+
+        if (col >= 8 || row >= 8) return false;
+        if (!std::isalpha(static_cast<unsigned char>(c))) return false;
+        board[row][col++] = c;
+    }
+    if (row != 7 || col != 8) {
+        // jeśli ostatni rząd nie został wypełniony dokładnie 8 polami
+        return false;
+    }
+
+    if (active == "w") whiteToMove = true;
+    else if (active == "b") whiteToMove = false;
+    else return false;
+
+    whiteKingMoved = blackKingMoved = true;
+    whiteKingsideRookMoved = whiteQueensideRookMoved = true;
+    blackKingsideRookMoved = blackQueensideRookMoved = true;
+
+    if (castling != "-") {
+        for (char c : castling) {
+            switch (c) {
+                case 'K': whiteKingMoved = whiteKingsideRookMoved = false; break;
+                case 'Q': whiteKingMoved = whiteQueensideRookMoved = false; break;
+                case 'k': blackKingMoved = blackKingsideRookMoved = false; break;
+                case 'q': blackKingMoved = blackQueensideRookMoved = false; break;
+                default: return false;
+            }
+        }
+    }
+
+    enPassantTarget = {-1, -1};
+    if (enPassant != "-") {
+        if (enPassant.size() != 2) return false;
+        char file = enPassant[0];
+        char rank = enPassant[1];
+        if (file < 'a' || file > 'h' || rank < '1' || rank > '8') return false;
+        enPassantTarget.second = file - 'a';
+        enPassantTarget.first = 8 - (rank - '0');
+    }
+
+    simulationMode = false;
+    positionHistory.clear();
+    transpositionTable.clear();
+
     zobristKey = computeZobristKey();
-
-    // --- Zapisz pozycję do historii (dla 3x powtórzenia) ---
     recordPosition();
+    return true;
 }
 
 bool ChessBoard::sideWhiteToMove() const {
@@ -228,6 +278,8 @@ void ChessBoard::postMoveUpdates(char piece, int fromRow, int fromCol, int toRow
     // zmiana tury
     whiteToMove = !whiteToMove;
 
+    zobristKey = computeZobristKey();
+
     // Zapisz historię i obsłuż koniec tylko gdy nie jesteśmy w trybie symulacji
     if (!simulationMode) {
         recordPosition();
@@ -242,6 +294,7 @@ void ChessBoard::postMoveUpdates(char piece, int fromRow, int fromCol, int toRow
         if (isInCheck(nowWhite)) {
             if (!hasAnyLegalMove(nowWhite)) {
                 std::cout << "Mat! " << (nowWhite ? "Biale" : "Czarne") << " przegrywaja.\n";
+                display();
                 exit(0);
             } else {
                 std::cout << "Szach!\n";
@@ -249,6 +302,7 @@ void ChessBoard::postMoveUpdates(char piece, int fromRow, int fromCol, int toRow
         } else {
             if (!hasAnyLegalMove(nowWhite)) {
                 std::cout << "Pat! Remis.\n";
+                display();
                 exit(0);
             }
         }
@@ -830,18 +884,23 @@ int ChessBoard::evaluate(int mode, bool whitePerspective) const {
     }
 }
 
-int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, int heuristicMode) {
-    // 🔹 Sprawdzenie transposition table (Zobrist)
+int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, int heuristicMode, int plyFromRoot) {
+    // Sprawdzenie transposition table (Zobrist)
     auto it = transpositionTable.find(zobristKey);
     if (it != transpositionTable.end() && it->second.depth >= depth)
         return it->second.eval;
 
-    // 🔹 Warunek zakończenia
-    if (depth == 0)
-        return evaluate(heuristicMode, maximizingPlayer);
-
     auto moves = generateLegalMoves(maximizingPlayer);
-    if (moves.empty())
+    if (moves.empty()) {
+        if (isInCheck(maximizingPlayer)) {
+            int mateScore = MATE_SCORE - plyFromRoot;
+            return maximizingPlayer ? -mateScore : mateScore;
+        }
+        return DRAW_SCORE;
+    }
+
+    // Warunek zakończenia
+    if (depth == 0)
         return evaluate(heuristicMode, maximizingPlayer);
 
     // --- MOVE ORDERING ---
@@ -861,7 +920,7 @@ int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, i
         // aktualizacja zobrista po ruchu
         zobristKey = computeZobristKey();
 
-        int eval = minimax(depth - 1, alpha, beta, !maximizingPlayer, heuristicMode);
+        int eval = minimax(depth - 1, alpha, beta, !maximizingPlayer, heuristicMode, plyFromRoot + 1);
 
         *this = saved;
         this->simulationMode = false;
@@ -911,7 +970,7 @@ ChessBoard::MoveEval ChessBoard::findBestMove(int depth, int heuristicMode) {
             continue;
         }
 
-        int eval = minimax(depth - 1, alpha, beta, !forWhite, heuristicMode);
+        int eval = minimax(depth - 1, alpha, beta, !forWhite, heuristicMode, 1);
 
         *this = saved;
         this->simulationMode = false;

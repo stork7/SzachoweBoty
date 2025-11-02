@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <utility>
 #include <random>
 #include <cstdint>
 
@@ -26,6 +27,7 @@ class ChessBoard {
 
 public:
     ChessBoard();
+    bool loadFEN(const std::string& fen);
     void display() const;
     bool makeMove(const std::string& move);
     bool isMoveValid(int fromRow, int fromCol, int toRow, int toCol) const;
@@ -41,7 +43,7 @@ public:
         int eval;
     };
     MoveEval findBestMove(int depth, int heuristicMode);
-    int minimax(int depth, int alpha, int beta, bool maximizingPlayer, int heuristicMode);
+    int minimax(int depth, int alpha, int beta, bool maximizingPlayer, int heuristicMode, int plyFromRoot);
 private:
     bool isPathClear(int fromRow, int fromCol, int toRow, int toCol) const;
     bool isSquareAttacked(int row, int col, bool byWhite) const;
