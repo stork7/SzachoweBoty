@@ -1,6 +1,7 @@
 #include "ChessBoard.h"
 #include <iostream>
 #include <string>
+#include <chrono>
 
 enum class Mode {
     HUMAN_VS_BOT = 1,
@@ -53,7 +54,13 @@ void playBotVsBot(int depth, int heuristicWhite, int heuristicBlack) {
         int heur = whiteToMove ? heuristicWhite : heuristicBlack;
 
         std::cout << (whiteToMove ? "Bialy" : "Czarny") << " bot mysli...\n";
+        auto start = std::chrono::high_resolution_clock::now();
         auto best = game.findBestMove(depth, heur);
+        auto end = std::chrono::high_resolution_clock::now();
+
+        std::chrono::duration<double> elapsed = end - start;
+        std::cout << "Czas myslenia: " << elapsed.count() << " s\n";
+
         if (best.move.empty()) {
             std::cout << "Brak ruchow.\n";
             return;
@@ -69,7 +76,6 @@ void playBotVsBot(int depth, int heuristicWhite, int heuristicBlack) {
 
 int main() {
     const Mode DEFAULT_MODE = Mode::HUMAN_VS_BOT;
-
     std::cout << "Wybierz tryb:\n"
               << "  1) Gracz vs Bot\n"
               << "  2) Bot vs Bot\n> ";

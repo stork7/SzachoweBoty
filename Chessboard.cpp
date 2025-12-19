@@ -32,7 +32,7 @@ ChessBoard::ChessBoard() {
         zobristWhiteToMove = dist(rng);
         zobristInitialized = true;
     }
-    loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR_w_KQkq_-_0_1");
+    loadFEN("r2q1rk1/p4pp1/6np/1p2p3/3pP1b1/P2P1NP1/P1RBQP1P/2R3K1_w_-_-_0_1");
 }
 
 bool ChessBoard::loadFEN(const std::string& fen) {
@@ -571,6 +571,34 @@ std::vector<std::string> ChessBoard::generateLegalMoves(bool forWhite) {
 
         char piece = board[fr][fc];
         if (piece == '.' || (std::isupper(piece) != forWhite)) continue;
+        if (std::tolower(piece) == 'k') {
+            if (forWhite && fr == 7 && fc == 4) {
+                if (move == "e1g1") { // krótka roszada
+                    if (canCastleKingside(true)) {
+                        legalMoves.push_back(move);
+                    }
+                    continue; // nie sprawdzamy dalej tego ruchu
+                } else if (move == "e1c1") { // długa roszada
+                    if (canCastleQueenside(true)) {
+                        legalMoves.push_back(move);
+                    }
+                    continue;
+                }
+            }
+            if (!forWhite && fr == 0 && fc == 4) {
+                if (move == "e8g8") { // krótka roszada
+                    if (canCastleKingside(false)) {
+                        legalMoves.push_back(move);
+                    }
+                    continue;
+                } else if (move == "e8c8") { // długa roszada
+                    if (canCastleQueenside(false)) {
+                        legalMoves.push_back(move);
+                    }
+                    continue;
+                }
+            }
+        }
         if (!isMoveValid(fr, fc, tr, tc)) continue;
 
         if (!wouldLeaveKingInCheck(fr, fc, tr, tc, promo))
@@ -602,27 +630,66 @@ std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) con
 
             switch (std::tolower(piece)) {
                 case 'p': {
-                    int forward = r + dir;
-                    if (forward >= 0 && forward < 8 && board[forward][c] == '.')
-                        moves.push_back(posToStr(r, c, forward, c));
+                    int dir = forWhite ? -1 : 1;   // kierunek ruchu
+                    int startRow = forWhite ? 6 : 1;
+                    int promoRow = forWhite ? 0 : 7;
 
-                    // podwójny ruch piona
-                    if ((forWhite && r == 6) || (!forWhite && r == 1)) {
-                        int doubleForward = r + 2 * dir;
-                        if (board[r + dir][c] == '.' && board[doubleForward][c] == '.')
-                            moves.push_back(posToStr(r, c, doubleForward, c));
+                    // --- 1. RUCH DO PRZODU ---
+                    int forward = r + dir;
+                    if (forward >= 0 && forward < 8 && board[forward][c] == '.') {
+                        if (forward == promoRow) {
+                            // PROMOCJE – 4 typy
+                            std::string base = posToStr(r, c, forward, c);
+                            moves.push_back(base + "q");
+                            moves.push_back(base + "r");
+                            moves.push_back(base + "b");
+                            moves.push_back(base + "n");
+                        } else {
+                            moves.push_back(posToStr(r, c, forward, c));
+                        }
+
+                        // --- 2. PODWÓJNY RUCH Z POZYCJI STARTOWEJ ---
+                        if (r == startRow) {
+                            int doubleForward = r + 2 * dir;
+                            if (board[r + dir][c] == '.' && board[doubleForward][c] == '.')
+                                moves.push_back(posToStr(r, c, doubleForward, c));
+                        }
                     }
 
-                    // bicie po skosie
+                    // --- 3. BICIA (normalne + promocja po biciu) ---
                     for (int dc : {-1, 1}) {
                         int nc = c + dc;
                         if (nc < 0 || nc > 7) continue;
+
                         if (forward >= 0 && forward < 8) {
                             char target = board[forward][nc];
-                            if (target != '.' && std::isupper(target) != forWhite)
-                                moves.push_back(posToStr(r, c, forward, nc));
+
+                            if (target != '.' && std::isupper(target) != forWhite) {
+                                if (forward == promoRow) {
+                                    // PROMOCJE PO BICIU
+                                    std::string base = posToStr(r, c, forward, nc);
+                                    moves.push_back(base + "q");
+                                    moves.push_back(base + "r");
+                                    moves.push_back(base + "b");
+                                    moves.push_back(base + "n");
+                                } else {
+                                    moves.push_back(posToStr(r, c, forward, nc));
+                                }
+                            }
                         }
                     }
+
+                    // --- 4. BICIE W PRZELOCIE (en passant) ---
+                    if (enPassantTarget.first != -1) {
+                        int epRow = enPassantTarget.first;
+                        int epCol = enPassantTarget.second;
+
+                        // pion może iść tylko na pole dokładnie epRow/epCol
+                        if (forward == epRow && std::abs(epCol - c) == 1) {
+                            moves.push_back(posToStr(r, c, epRow, epCol));
+                        }
+                    }
+
                     break;
                 }
                 case 'n': {
@@ -678,6 +745,13 @@ std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) con
                             if (target == '.' || std::isupper(target) != forWhite)
                                 moves.push_back(posToStr(r, c, nr, nc));
                         }
+                    }
+                    if (forWhite && piece == 'K' && r == 7 && c == 4) {
+                        moves.push_back("e1g1");
+                        moves.push_back("e1c1");
+                    } else if (!forWhite && piece == 'k' && r == 0 && c == 4) {
+                        moves.push_back("e8g8");
+                        moves.push_back("e8c8");
                     }
                     break;
                 }
@@ -813,7 +887,7 @@ int ChessBoard::evaluateMaterialist(const ChessBoard& board, bool whitePerspecti
         }
     }
 
-    return whitePerspective ? score : -score;
+    return score;
 }
 int ChessBoard::evaluateStrateg(const ChessBoard& board, bool whitePerspective) {
     int score = evaluateMaterialist(board, true); // bazowo materiał
@@ -841,7 +915,7 @@ int ChessBoard::evaluateStrateg(const ChessBoard& board, bool whitePerspective) 
     if (board.getPiece(7,4) == 'K' && board.getPiece(6,4) == '.') positional -= 40;
     if (board.getPiece(0,4) == 'k' && board.getPiece(1,4) == '.') positional += 40;
 
-    return whitePerspective ? score + positional : -(score + positional);
+    return score + positional;
 }
 int ChessBoard::evaluateAggressor(const ChessBoard& board, bool whitePerspective) {
     int score = evaluateMaterialist(board, true); // ocena bazowa dla białych
@@ -919,17 +993,15 @@ int ChessBoard::evaluateAggressor(const ChessBoard& board, bool whitePerspective
         }
     }
 
-    // Suma oceny
-    int finalScore = score + attackBonus;
-    return whitePerspective ? finalScore : -finalScore;
+    return score + attackBonus;
 }
 
 
 int ChessBoard::evaluate(int mode, bool whitePerspective) const {
     switch (mode) {
-        case 0: return evaluateMaterialist(*this, whitePerspective);
-        case 1: return evaluateStrateg(*this, whitePerspective);
-        case 2: return evaluateAggressor(*this, whitePerspective);
+        case 0: return evaluateMaterialist(*this, true);
+        case 1: return evaluateStrateg(*this, true);
+        case 2: return evaluateAggressor(*this, true);
         default: return 0;
     }
 }
@@ -951,7 +1023,7 @@ int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, i
 
     // Warunek zakończenia
     if (depth == 0)
-        return evaluate(heuristicMode, maximizingPlayer);
+        return evaluate(heuristicMode, true);
 
     // --- MOVE ORDERING ---
     auto orderedMoves = scoreMoves(moves, maximizingPlayer);
@@ -1046,11 +1118,11 @@ ChessBoard::MoveEval ChessBoard::findBestMove(int depth, int heuristicMode) {
 int ChessBoard::pieceValue(char piece) const {
     switch (piece) {
         case 'p': return 100;
-        case 'n': return 320;
-        case 'b': return 330;
+        case 'n': return 325;
+        case 'b': return 325;
         case 'r': return 500;
-        case 'q': return 900;
-        case 'k': return 20000;
+        case 'q': return 1050;
+        case 'k': return 40000;
         default:  return 0;
     }
 }
