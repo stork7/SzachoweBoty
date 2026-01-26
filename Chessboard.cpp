@@ -13,10 +13,9 @@ uint64_t ChessBoard::zobristCastling[4];
 uint64_t ChessBoard::zobristEnPassant[8];
 
 ChessBoard::ChessBoard() {
-    // --- Inicjalizacja tablic Zobrista (tylko raz) ---
     static bool zobristInitialized = false;
     if (!zobristInitialized) {
-        std::mt19937_64 rng(2025); // stały seed dla testów
+        std::mt19937_64 rng(2026);
         std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
 
         for (int sq = 0; sq < 64; ++sq)
@@ -32,7 +31,7 @@ ChessBoard::ChessBoard() {
         zobristWhiteToMove = dist(rng);
         zobristInitialized = true;
     }
-    loadFEN("r2q1rk1/p4pp1/6np/1p2p3/3pP1b1/P2P1NP1/P1RBQP1P/2R3K1_w_-_-_0_1");
+    loadFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR_w_KQkq_-_0_1");
 }
 
 bool ChessBoard::loadFEN(const std::string& fen) {
@@ -76,7 +75,6 @@ bool ChessBoard::loadFEN(const std::string& fen) {
         board[row][col++] = c;
     }
     if (row != 7 || col != 8) {
-        // jeśli ostatni rząd nie został wypełniony dokładnie 8 polami
         return false;
     }
 
@@ -279,7 +277,7 @@ void ChessBoard::postMoveUpdates(char piece, int fromRow, int fromCol, int toRow
 
     zobristKey = computeZobristKey();
 
-    // Zapisz historię i obsłuż koniec tylko gdy nie jesteśmy w trybie symulacji
+    // Zapisz historię i obsłuż koniec tylko gdy nie w trybie symulacji
     if (!simulationMode) {
         recordPosition();
 
@@ -323,7 +321,7 @@ bool ChessBoard::isMoveValid(int fromRow, int fromCol, int toRow, int toCol) con
         case 'p': {
             int dir = isWhite ? -1 : 1;
 
-            // Zwykły ruch do przodu
+            // ruch do przodu
             if (dc == 0 && target == '.') {
                 if (dr == dir) return true;
                 if ((isWhite && fromRow == 6) || (!isWhite && fromRow == 1)) {
@@ -475,7 +473,7 @@ bool ChessBoard::isInCheck(bool white) const {
         }
     }
 
-    // sprawdź, czy jakakolwiek figura przeciwnika może zbić króla
+    // sprawdza, czy jakakolwiek figura przeciwnika może zbić króla
     for (int r = 0; r < 8; r++) {
         for (int c = 0; c < 8; c++) {
             char p = board[r][c];
@@ -507,7 +505,7 @@ bool ChessBoard::hasAnyLegalMove(bool white) {
 
                     bool inCheck = isInCheck(white);
 
-                    // cofamy
+                    // cofanie
                     board[r1][c1] = backupFrom;
                     board[r2][c2] = backupTo;
 
@@ -556,10 +554,6 @@ bool ChessBoard::isThreefoldRepetition() {
     return positionHistory[key] >= 3;
 }
 
-static std::string coordToNotation(int row, int col) {
-    return std::string(1, 'a' + col) + std::to_string(8 - row);
-}
-
 std::vector<std::string> ChessBoard::generateLegalMoves(bool forWhite) {
     std::vector<std::string> legalMoves;
     auto pseudoMoves = generatePseudoLegalMoves(forWhite);
@@ -577,7 +571,7 @@ std::vector<std::string> ChessBoard::generateLegalMoves(bool forWhite) {
                     if (canCastleKingside(true)) {
                         legalMoves.push_back(move);
                     }
-                    continue; // nie sprawdzamy dalej tego ruchu
+                    continue;
                 } else if (move == "e1c1") { // długa roszada
                     if (canCastleQueenside(true)) {
                         legalMoves.push_back(move);
@@ -634,7 +628,6 @@ std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) con
                     int startRow = forWhite ? 6 : 1;
                     int promoRow = forWhite ? 0 : 7;
 
-                    // --- 1. RUCH DO PRZODU ---
                     int forward = r + dir;
                     if (forward >= 0 && forward < 8 && board[forward][c] == '.') {
                         if (forward == promoRow) {
@@ -648,7 +641,6 @@ std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) con
                             moves.push_back(posToStr(r, c, forward, c));
                         }
 
-                        // --- 2. PODWÓJNY RUCH Z POZYCJI STARTOWEJ ---
                         if (r == startRow) {
                             int doubleForward = r + 2 * dir;
                             if (board[r + dir][c] == '.' && board[doubleForward][c] == '.')
@@ -656,7 +648,6 @@ std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) con
                         }
                     }
 
-                    // --- 3. BICIA (normalne + promocja po biciu) ---
                     for (int dc : {-1, 1}) {
                         int nc = c + dc;
                         if (nc < 0 || nc > 7) continue;
@@ -666,7 +657,6 @@ std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) con
 
                             if (target != '.' && std::isupper(target) != forWhite) {
                                 if (forward == promoRow) {
-                                    // PROMOCJE PO BICIU
                                     std::string base = posToStr(r, c, forward, nc);
                                     moves.push_back(base + "q");
                                     moves.push_back(base + "r");
@@ -679,12 +669,10 @@ std::vector<std::string> ChessBoard::generatePseudoLegalMoves(bool forWhite) con
                         }
                     }
 
-                    // --- 4. BICIE W PRZELOCIE (en passant) ---
                     if (enPassantTarget.first != -1) {
                         int epRow = enPassantTarget.first;
                         int epCol = enPassantTarget.second;
 
-                        // pion może iść tylko na pole dokładnie epRow/epCol
                         if (forward == epRow && std::abs(epCol - c) == 1) {
                             moves.push_back(posToStr(r, c, epRow, epCol));
                         }
@@ -911,17 +899,17 @@ int ChessBoard::evaluateStrateg(const ChessBoard& board, bool whitePerspective) 
         }
     }
 
-    // Bezpieczeństwo króla – uproszczone
+    // Bezpieczeństwo króla
     if (board.getPiece(7,4) == 'K' && board.getPiece(6,4) == '.') positional -= 40;
     if (board.getPiece(0,4) == 'k' && board.getPiece(1,4) == '.') positional += 40;
 
     return score + positional;
 }
 int ChessBoard::evaluateAggressor(const ChessBoard& board, bool whitePerspective) {
-    int score = evaluateMaterialist(board, true); // ocena bazowa dla białych
+    int score = evaluateMaterialist(board, true);
     int attackBonus = 0;
 
-    // Znajdź pozycje królów
+    // Znajduje pozycje królów
     int whiteKingRow = -1, whiteKingCol = -1;
     int blackKingRow = -1, blackKingCol = -1;
 
@@ -933,21 +921,21 @@ int ChessBoard::evaluateAggressor(const ChessBoard& board, bool whitePerspective
         }
     }
 
-    // Przejdź po wszystkich figurach i oceniaj agresję
+    // Przechodzi po wszystkich figurach i ocenia agresję
     for (int r = 0; r < 8; ++r) {
         for (int c = 0; c < 8; ++c) {
             char p = board.getPiece(r, c);
             if (p == '.') continue;
 
             bool isWhite = std::isupper(p);
-            auto moves = board.generateMovesForPiece(r, c);// generuje wszystkie możliwe ruchy danej figury
+            auto moves = board.generateMovesForPiece(r, c);
 
             for (const auto& m : moves) {
                 int tr = 8 - (m[3] - '0');
                 int tc = m[2] - 'a';
 
 
-                // Sprawdź, czy atakuje pola wokół króla przeciwnika
+                // Sprawdza, czy atakuje pola wokół króla przeciwnika
                 int kRow = isWhite ? blackKingRow : whiteKingRow;
                 int kCol = isWhite ? blackKingCol : whiteKingCol;
 
@@ -955,7 +943,7 @@ int ChessBoard::evaluateAggressor(const ChessBoard& board, bool whitePerspective
                     attackBonus += isWhite ? 25 : -25;
                 }
 
-                // Aktywność figur — środkowa część planszy
+                // Aktywność figur dla środkowej części planszy
                 if (tr >= 2 && tr <= 5 && tc >= 2 && tc <= 5) {
                     if (std::tolower(p) != 'p' && std::tolower(p) != 'k')
                         attackBonus += isWhite ? 5 : -5;
@@ -1007,7 +995,6 @@ int ChessBoard::evaluate(int mode, bool whitePerspective) const {
 }
 
 int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, int heuristicMode, int plyFromRoot) {
-    // Sprawdzenie transposition table (Zobrist)
     auto it = transpositionTable.find(zobristKey);
     if (it != transpositionTable.end() && it->second.depth >= depth)
         return it->second.eval;
@@ -1025,13 +1012,13 @@ int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, i
     if (depth == 0)
         return evaluate(heuristicMode, true);
 
-    // --- MOVE ORDERING ---
+    // Move ordering
     auto orderedMoves = scoreMoves(moves, maximizingPlayer);
 
     int bestEval = maximizingPlayer ? -10000000 : 10000000;
 
     for (const auto& [move, score] : orderedMoves) {
-        auto saved = *this; // kopiujemy stan
+        auto saved = *this;
         this->simulationMode = true;
 
         if (!makeMove(move)) {
@@ -1039,7 +1026,6 @@ int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, i
             continue;
         }
 
-        // aktualizacja zobrista po ruchu
         zobristKey = computeZobristKey();
 
         int eval = minimax(depth - 1, alpha, beta, !maximizingPlayer, heuristicMode, plyFromRoot + 1);
@@ -1064,9 +1050,6 @@ int ChessBoard::minimax(int depth, int alpha, int beta, bool maximizingPlayer, i
     return bestEval;
 }
 
-// =========================
-// Funkcja wybierająca najlepszy ruch
-// =========================
 ChessBoard::MoveEval ChessBoard::findBestMove(int depth, int heuristicMode) {
     bool forWhite = whiteToMove;
     auto moves = generateLegalMoves(forWhite);
@@ -1074,7 +1057,6 @@ ChessBoard::MoveEval ChessBoard::findBestMove(int depth, int heuristicMode) {
     if (moves.empty())
         return {"", evaluate(heuristicMode, forWhite)};
 
-    // --- MOVE ORDERING ---
     auto orderedMoves = scoreMoves(moves, forWhite);
 
     int bestEval = forWhite ? -10000000 : 10000000;
@@ -1126,7 +1108,7 @@ int ChessBoard::pieceValue(char piece) const {
         default:  return 0;
     }
 }
-// --- Funkcja pomocnicza: nadaje priorytety ruchom ---
+
 std::vector<std::pair<std::string, int>> ChessBoard::scoreMoves(
     const std::vector<std::string>& moves, bool forWhite) const
 {
@@ -1143,29 +1125,23 @@ std::vector<std::pair<std::string, int>> ChessBoard::scoreMoves(
 
         char movingPiece = board[fromRow][fromCol];
         char capturedPiece = board[toRow][toCol];
-
-        // --- 1. Bicie (im więcej warty cel, tym większy priorytet) ---
         if (capturedPiece != '.') {
             int capturedVal = pieceValue(std::tolower(capturedPiece));
             int moverVal = pieceValue(std::tolower(movingPiece));
             score += 10 * capturedVal - moverVal;
         }
 
-        // --- 2. Promocja ---
         if (std::tolower(movingPiece) == 'p' && (toRow == 0 || toRow == 7))
             score += 800;
 
-        // --- 3. Ruchy figur centralnych (kontrola centrum) ---
         if ((toRow >= 2 && toRow <= 5) && (toCol >= 2 && toCol <= 5))
             score += 50;
 
-        // --- 4. Losowe drobne różnicowanie, by uniknąć remisów deterministycznych ---
         score += rand() % 5;
 
         scored.push_back({move, score});
     }
 
-    // --- Sortuj malejąco po priorytecie ---
     std::sort(scored.begin(), scored.end(),
               [](const auto& a, const auto& b) { return a.second > b.second; });
 
